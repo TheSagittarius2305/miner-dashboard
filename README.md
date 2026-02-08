@@ -115,4 +115,3 @@ Idealny do pracy ciągłej 24/7 na Raspberry Pi
 
 Kod celowo prosty i czytelny
 
-nano README.md
