@@ -50,10 +50,6 @@ miner-dashboard/
 ├── requirements.txt
 ├── README.md
 └── .gitignore
-
-yaml
-Skopiuj kod
-
 ---
 
 ## ⚙️ Instalacja (Raspberry Pi)
@@ -104,14 +100,4 @@ Idealny do pracy ciągłej 24/7 na Raspberry Pi
 
 Kod celowo prosty i czytelny
 
-📌 License
-MIT
-
-yaml
-Skopiuj kod
-
----
-
-Teraz **dosłownie**:
-```bash
 nano README.md
