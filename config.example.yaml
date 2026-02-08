@@ -1,0 +1,22 @@
+app:
+  host: 0.0.0.0
+  port: 8000
+  poll_interval_sec: 20
+  db_path: "./data/miners.sqlite3"
+
+electricity:
+  price_eur_per_kwh: 0.35
+
+miners:
+  - id: "gamma1"
+    name: "Gamma #1"
+    type: "bitaxe"
+    base_url: "http://miner1"
+  - id: "gamma2"
+    name: "Gamma #2"
+    type: "bitaxe"
+    base_url: "http://miner2"
+  - id: "nerdqaxe"
+    name: "NerdQaxe++"
+    type: "bitaxe"
+    base_url: "http://miner3"

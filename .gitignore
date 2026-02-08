@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+
+# Virtualenv
+.venv/
+venv/
+
+# Runtime / data
+data/
+nohup.out
+/tmp/
+*.log
+
+# Config (real)
+config.yaml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Backup / patch artifacts
+_patch_backup_*/
+

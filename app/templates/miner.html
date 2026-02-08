@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h3 class="mb-0">{{ miner.name }}</h3>
+    <div class="text-muted small">{{ miner.base_url }}</div>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="/">← Back</a>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    {% if latest %}
+      <div class="row g-2 small">
+        <div class="col-6 col-md-3">Status: <b>{{ latest.status }}</b></div>
+        <div class="col-6 col-md-3">Hashrate: <b>{{ "%.2f"|format(latest.hashrate_th) }}</b> TH/s</div>
+        <div class="col-6 col-md-3">ASIC: <b>{{ "%.1f"|format(latest.asic_temp) }}</b> °C</div>
+        <div class="col-6 col-md-3">Power: <b>{{ "%.1f"|format(latest.watts) }}</b> W</div>
+        <div class="col-12 text-muted">Last update: {{ latest.ts_human }}</div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <h5>Last 24h</h5>
+    <canvas id="minerChart" height="120"></canvas>
+  </div>
+</div>
+
+<script>
+fetch("/api/history/{{ miner.id }}?hours=24")
+  .then(r => r.json())
+  .then(data => {
+    const labels = data.map(p => p.time);
+    const hashrate = data.map(p => p.hashrate);
+    const temp = data.map(p => p.asic_temp);
+    const power = data.map(p => p.watts);
+
+    new Chart(document.getElementById("minerChart"), {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "Hashrate (TH/s)",
+            data: hashrate,
+            borderColor: "blue",
+            yAxisID: "y1",
+            tension: 0.3
+          },
+          {
+            label: "ASIC Temp (°C)",
+            data: temp,
+            borderColor: "red",
+            yAxisID: "y2",
+            tension: 0.3
+          },
+          {
+            label: "Power (W)",
+            data: power,
+            borderColor: "green",
+            yAxisID: "y2",
+            tension: 0.3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          y1: {
+            type: "linear",
+            position: "left",
+            title: { display: true, text: "TH/s" }
+          },
+          y2: {
+            type: "linear",
+            position: "right",
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: "°C / W" }
+          }
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

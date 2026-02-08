@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block top_right %}
+<div class="d-flex align-items-center gap-2">
+  <span class="smallnote">🕒 update: <span id="now">--:--:--</span></span>
+
+  <div class="seg" id="rangeSeg" title="Zakres wykresów">
+    <button class="segbtn" data-hours="24">24h</button>
+    <button class="segbtn" data-hours="6">6h</button>
+    <button class="segbtn" data-hours="1">1h</button>
+  </div>
+
+  <button class="btn btn-sm btn-outline-light compactBtn" id="compactToggle">📱 compact</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="kpi mb-3">
+  <div class="box">
+    <div class="lbl">⚡ Łączny pobór</div>
+    <div class="val"><span id="totalW">--</span> W</div>
+  </div>
+
+  <div class="box">
+    <div class="lbl">💸 Koszt / dzień ({{ "%.2f"|format(price) }} €/kWh)</div>
+    <div class="val"><span id="eurDay">--</span> €</div>
+  </div>
+
+  <div class="box">
+    <div class="lbl">📆 Koszt / miesiąc</div>
+    <div class="val"><span id="eurMonth">--</span> €</div>
+  </div>
+</div>
+
+<div class="cardx p-3">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <div class="d-flex align-items-center gap-2">
+      <span class="bolt">⚡</span>
+      <div style="font-weight:900">Bitaxe Monitor</div>
+      <div class="pill">local</div>
+    </div>
+    <div class="smallnote">🔎 JSON: <a href="/api/status">/api/status</a></div>
+  </div>
+
+  <div class="row g-3" id="minerGrid">
+    {% for m in miners %}
+    <div class="col-12 col-xl-4 col-lg-6">
+      <div class="cardx p-3 h-100 minerCard">
+        <div class="d-flex align-items-start justify-content-between">
+          <div>
+            <div class="minerTitle">
+              <a href="/miner/{{ m.id }}" class="text-decoration-none">{{ m.name }}</a>
+            </div>
+            <div class="smallnote">{{ m.base_url }}</div>
+          </div>
+
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge-dot dot-good" id="{{m.id}}-dot"></span>
+            <div class="smallnote" id="{{m.id}}-status">--</div>
+          </div>
+        </div>
+
+        <hr class="sep my-3">
+
+        <div class="row g-2">
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">⛏️ Hashrate</div>
+              <div class="v"><span id="{{m.id}}-ths">--</span> TH/s</div>
+              <div class="smallnote">🏆 best: <span id="{{m.id}}-best">--</span></div>
+            </div>
+          </div>
+
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">🧠 Efficiency</div>
+              <div class="v"><span id="{{m.id}}-eff">--</span> J/TH</div>
+              <div class="smallnote">⚡ power: <span id="{{m.id}}-w">--</span> W</div>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <div class="mini">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="t">📈 Hashrate (<span id="{{m.id}}-rangeLbl">--</span>)</div>
+                <div class="smallnote">now <b><span id="{{m.id}}-ths2">--</span></b> TH/s</div>
+              </div>
+              <div class="chartwrap">
+                <canvas id="{{m.id}}-spark" height="90"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">🔌 Power</div>
+              <div class="d-flex justify-content-between">
+                <div class="smallnote">W</div>
+                <div class="smallnote"><b><span id="{{m.id}}-w2">--</span></b> / <span id="{{m.id}}-wMax">--</span></div>
+              </div>
+              <div class="pbar mt-1">
+                <div class="pbarFill" id="{{m.id}}-pwrBar"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">🌡 Heat</div>
+              <div class="d-flex justify-content-between">
+                <div class="smallnote">ASIC / VRM</div>
+                <div class="smallnote"><b><span id="{{m.id}}-asic">--</span></b>°C / <span id="{{m.id}}-vrm">--</span>°C</div>
+              </div>
+              <div class="pbar mt-1">
+                <div class="pbarFill" id="{{m.id}}-tmpBar"></div>
+              </div>
+              <div class="smallnote mt-1">🎯 target: <span id="{{m.id}}-tMax">85</span>°C</div>
+            </div>
+          </div>
+
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">🧾 Shares</div>
+              <div class="v"><span id="{{m.id}}-shA">--</span> acc</div>
+              <div class="smallnote"><span id="{{m.id}}-shR">--</span> rej · err <span id="{{m.id}}-err">--</span>%</div>
+            </div>
+          </div>
+
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">📶 Network</div>
+              <div class="v">RSSI <span id="{{m.id}}-rssi">--</span></div>
+              <div class="smallnote">🌀 fan <span id="{{m.id}}-fan">--</span> rpm</div>
+            </div>
+          </div>
+
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">⚙️ Info</div>
+              <div class="v"><span id="{{m.id}}-freq">--</span> MHz</div>
+              <div class="smallnote">core <span id="{{m.id}}-core">--</span> mV · ⏱ <span id="{{m.id}}-up">--</span></div>
+            </div>
+          </div>
+
+          <div class="col-6">
+            <div class="mini">
+              <div class="t">🗓 Last</div>
+              <div class="v"><span id="{{m.id}}-ts">--</span></div>
+              <div class="smallnote">status: <span id="{{m.id}}-status2">--</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+  window.MINERS = [{% for m in miners %}"{{m.id}}"{% if not loop.last %},{% endif %}{% endfor %}];
+</script>
+{% endblock %}

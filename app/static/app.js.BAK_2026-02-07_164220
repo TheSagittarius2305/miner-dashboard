@@ -1,0 +1,590 @@
+
+// ===== coin rain global lock (prevent double spawn) =====
+window.__coinRainLock = window.__coinRainLock || {};
+
+
+function setById(id, val){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.textContent = (val === null || val === undefined || val === "") ? "--" : String(val);
+}
+
+/* ===== helpers ===== */
+function fmt(n, d=1){
+  if(n === null || n === undefined) return "--";
+  const x = Number(n);
+  if(Number.isNaN(x)) return "--";
+  return x.toFixed(d);
+}
+function fmtInt(n){
+  if(n === null || n === undefined) return "--";
+  const x = Number(n);
+  if(Number.isNaN(x)) return "--";
+  return x.toLocaleString("en-US");
+}
+function fmtShort(n){
+  if(n === null || n === undefined) return "--";
+  const x = Number(n);
+  if(Number.isNaN(x)) return "--";
+  if(x >= 1e12) return (x/1e12).toFixed(2).replace(/\.00$/, "") + "T";
+  if(x >= 1e9)  return (x/1e9 ).toFixed(2).replace(/\.00$/, "") + "B";
+  if(x >= 1e6)  return (x/1e6 ).toFixed(1).replace(/\.0$/,  "") + "M";
+  if(x >= 1e3)  return (x/1e3 ).toFixed(0) + "K";
+  return x.toString();
+}
+function bestMeta(n){
+  const x = Number(n);
+  if(Number.isNaN(x)) return {cls:"", emo:""};
+  if(x >= 1e12) return {cls:"bestT", emo:"🏆"};
+  if(x >= 1e9)  return {cls:"bestB", emo:"🥇"};
+  if(x >= 1e6)  return {cls:"bestM", emo:"🥈"};
+  if(x >= 1e3)  return {cls:"bestK", emo:"🥉"};
+  return {cls:"", emo:""};
+}
+function fmtUptime(sec){
+  if(sec === null || sec === undefined) return "--";
+  sec = Number(sec);
+  if(Number.isNaN(sec)) return "--";
+  const h = Math.floor(sec/3600);
+  const m = Math.floor((sec%3600)/60);
+  const s = Math.floor(sec%60);
+  return `${h}h ${m}m ${s}s`;
+}
+function setText(id, val){
+  const el = document.getElementById(id);
+  if(el) el.textContent = val;
+}
+function clamp01(x){
+  x = Number(x);
+  if(Number.isNaN(x)) return 0;
+  return Math.max(0, Math.min(1, x));
+}
+function niceRange(vals){
+  const arr = vals.filter(v => v !== null && v !== undefined && !Number.isNaN(Number(v))).map(Number);
+  if(arr.length < 2) return {min: 0, max: 1};
+  let mn = Math.min(...arr);
+  let mx = Math.max(...arr);
+  if(mn === mx){
+    mn = mn * 0.98;
+    mx = mx * 1.02;
+    if(mn === mx){ mn -= 0.1; mx += 0.1; }
+  }
+  const pad = (mx - mn) * 0.18;
+  return {min: mn - pad, max: mx + pad};
+}
+
+/* ===== BTC estimation =====
+theoretical BTC/day per TH/s derived from difficulty:
+network_hashrate = difficulty * 2^32 / 600  (H/s)
+btc_per_day = (miner_hashrate / network_hashrate) * 144 * block_reward
+
+=> btc_per_day_per_TH = (1e12 * 86400 * block_reward) / (difficulty * 2^32)
+*/
+const BTC = {
+  mode: localStorage.getItem("btcMode") || "braiins",
+  btcEur: null,
+  difficulty: null,         // current btc difficulty
+  lastPriceTs: 0,
+  lastDiffTs: 0,
+  // fallback based on your Braiins screenshot calibration
+  fallback_btc_per_th_day: 0.000000063, // BTC / TH / day (approx FPPS incl fees)
+  fee_fpps: 0.025,          // Braiins FPPS fee
+  block_reward: 3.125       // BTC (subsidy; fees ignored)
+};
+
+function setBtcMode(mode){
+  BTC.mode = mode;
+  localStorage.setItem("btcMode", mode);
+  setActiveBtcModeButtons();
+}
+function setActiveBtcModeButtons(){
+  const btns = document.querySelectorAll("#btcModeSeg .segbtn");
+  btns.forEach(b => b.classList.toggle("active", b.dataset.mode === BTC.mode));
+  const label = document.getElementById("btcModeLabel");
+  const hint  = document.getElementById("btcModeHint");
+
+  if(label) label.textContent = BTC.mode;
+  if(hint){
+    if(BTC.mode === "braiins") hint.textContent = "FPPS est. (fee 2.5%)";
+    if(BTC.mode === "theoretical") hint.textContent = "theoretical from BTC difficulty";
+    if(BTC.mode === "pessimistic") hint.textContent = "pessimistic = braiins × 0.85";
+  }
+}
+
+async function refreshBtcPrice(){
+  // every 60s
+  const now = Date.now();
+  if(now - BTC.lastPriceTs < 60_000 && BTC.btcEur !== null) return;
+
+  try{
+    // CoinGecko simple price (CORS ok in most browsers)
+    const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur", {cache:"no-store"});
+    const j = await r.json();
+    const p = j?.bitcoin?.eur;
+    if(p){
+      BTC.btcEur = Number(p);
+      BTC.lastPriceTs = now;
+      setText("btcEur", BTC.btcEur.toLocaleString("en-US", {maximumFractionDigits: 0}) + " €");
+    }
+  }catch(e){
+    // keep old / show --
+  }
+}
+
+async function refreshDifficulty(){
+  // every 10 min
+  const now = Date.now();
+  if(now - BTC.lastDiffTs < 600_000 && BTC.difficulty !== null) return;
+
+  try{
+    // mempool difficulty adjustment endpoint
+    const r = await fetch("https://mempool.space/api/v1/difficulty-adjustment", {cache:"no-store"});
+    const j = await r.json();
+    const d = j?.currentDifficulty;
+    if(d){
+      BTC.difficulty = Number(d);
+      BTC.lastDiffTs = now;
+    }
+  }catch(e){
+    // keep old
+  }
+}
+
+function btcPerThDayTheoretical(){
+  const d = BTC.difficulty;
+  if(!d || Number.isNaN(d) || d <= 0) return null;
+
+  const two32 = 4294967296; // 2^32
+  const btc_per_th_day = (1e12 * 86400 * BTC.block_reward) / (d * two32);
+  return btc_per_th_day;
+}
+
+function btcPerThDayByMode(){
+  const theo = btcPerThDayTheoretical();
+
+  // braiins: theoretical minus fee, fallback if no difficulty
+  if(BTC.mode === "braiins"){
+    if(theo !== null) return theo * (1 - BTC.fee_fpps);
+    return BTC.fallback_btc_per_th_day;
+  }
+
+  // theoretical: pure math, fallback to calibrated if no difficulty
+  if(BTC.mode === "theoretical"){
+    if(theo !== null) return theo;
+    return BTC.fallback_btc_per_th_day / (1 - BTC.fee_fpps);
+  }
+
+  // pessimistic: braiins × 0.85
+  if(BTC.mode === "pessimistic"){
+    const base = (theo !== null) ? theo * (1 - BTC.fee_fpps) : BTC.fallback_btc_per_th_day;
+    return base * 0.85;
+  }
+
+  return BTC.fallback_btc_per_th_day;
+}
+
+function updateBtcKpis(totalTH, totalW){
+  // totalW is watts
+  const perThDay = btcPerThDayByMode();
+  const btcDay = totalTH * perThDay;
+  const btcMonth = btcDay * 30;
+
+  // kWh/day
+  const kwhDay = (totalW * 24) / 1000;
+  const btcPerKwh = (kwhDay > 0) ? (btcDay / kwhDay) : null;
+
+  setText("totalTH", fmt(totalTH, 2));
+  setText("btcDay", btcDay ? btcDay.toFixed(8) : "--");
+  setText("btcMonth", btcMonth ? btcMonth.toFixed(8) : "--");
+  setText("kwhDay", kwhDay ? fmt(kwhDay, 2) : "--");
+  setText("btcPerKwh", btcPerKwh ? btcPerKwh.toFixed(10) : "--");
+
+  // € / day
+  if(BTC.btcEur){
+    const eurDay = btcDay * BTC.btcEur;
+    setText("eurFromBtcDay", eurDay.toFixed(2));
+  }else{
+    setText("eurFromBtcDay", "--");
+  }
+
+  // tooltip
+  const t1 = document.getElementById("btcDay")?.closest(".box");
+  const t2 = document.getElementById("btcMonth")?.closest(".box");
+  if(t1) t1.title = "based on FPPS @ current difficulty";
+  if(t2) t2.title = "based on FPPS @ current difficulty";
+}
+
+/* ===== UI state ===== */
+const STATE = {
+  hours: Number(localStorage.getItem("rangeHours") || 24),
+  compact: (localStorage.getItem("compact") || "0") === "1",
+  charts: {},
+  prevShares: {}
+};
+
+function applyCompact(){
+  document.body.classList.toggle("compact", STATE.compact);
+  localStorage.setItem("compact", STATE.compact ? "1" : "0");
+}
+
+function setActiveRangeButtons(){
+  document.querySelectorAll(".segbtn").forEach(b => {
+    if(!b.dataset.hours) return;
+    const h = Number(b.dataset.hours);
+    b.classList.toggle("active", h === STATE.hours);
+  });
+  if(window.MINERS){
+    window.MINERS.forEach(id => setText(id+"-rangeLbl", `${STATE.hours}h`));
+  }
+}
+
+/* ===== status dot ===== */
+function setDot(id, status, asicTemp){
+  const dot = document.getElementById(id + "-dot");
+  const st  = document.getElementById(id + "-status");
+  if(!dot || !st) return;
+
+  st.textContent = status || "--";
+  dot.classList.remove("dot-good","dot-warn","dot-bad");
+
+  if(status !== "online"){
+    dot.classList.add("dot-bad");
+    return;
+  }
+  const t = Number(asicTemp);
+  if(!Number.isNaN(t) && t >= 75) dot.classList.add("dot-warn");
+  else dot.classList.add("dot-good");
+}
+
+/* ===== progress bars ===== */
+function setBar(id, pct01, warn=false){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.style.width = `${Math.round(clamp01(pct01)*100)}%`;
+  el.classList.toggle("warn", !!warn);
+}
+
+/* ===== history ===== */
+async function loadHistory(minerId, hours){
+  const r = await fetch(`/api/history/${minerId}?hours=${hours}`, {cache:"no-store"});
+  return await r.json();
+}
+
+/* ===== charts ===== */
+function makeChart(minerId, series, labels, status){
+  const canvas = document.getElementById(`${minerId}-spark`);
+  if(!canvas) return null;
+
+  const color = status === "online" ? "rgba(34,211,238,0.95)" : "rgba(239,68,68,0.95)";
+  const bg = status === "online" ? "rgba(34,211,238,0.12)" : "rgba(239,68,68,0.10)";
+  const {min, max} = niceRange(series);
+
+  return new Chart(canvas, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "TH/s",
+        data: series,
+        borderColor: color,
+        backgroundColor: bg,
+        fill: true,
+        borderWidth: 2.5,
+        pointRadius: 0,
+        tension: 0.35
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          enabled: true,
+          displayColors: false,
+          callbacks: {
+            title: (items) => items?.[0]?.label ? ` ${items[0].label}` : "",
+            label: (ctx) => ` ${fmt(ctx.parsed.y, 2)} TH/s`
+          }
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: {
+          display: true,
+          min,
+          max,
+          ticks: {
+            color: "rgba(255,255,255,0.55)",
+            maxTicksLimit: 4,
+            callback: (v) => `${Number(v).toFixed(2)}`
+          },
+          grid: { color: "rgba(255,255,255,0.08)" }
+        }
+      }
+    }
+  });
+}
+
+async function refreshChart(minerId, status){
+  const data = await loadHistory(minerId, STATE.hours);
+
+  const pts = data
+    .map(p => p.hashrate)
+    .filter(v => v !== null && v !== undefined)
+    .map(Number)
+    .filter(v => !Number.isNaN(v));
+
+  if(pts.length === 0) return;
+
+  const maxN = 140;
+  let series = pts;
+  if(series.length > maxN){
+    const step = Math.ceil(series.length / maxN);
+    series = series.filter((_, i) => i % step === 0);
+  }
+
+  let labels = data.map(p => p.time);
+  if(labels.length > series.length){
+    const step = Math.ceil(labels.length / series.length);
+    labels = labels.filter((_, i) => i % step === 0).slice(0, series.length);
+  } else if(labels.length < series.length){
+    labels = series.map((_, i) => String(i));
+  }
+
+  if(STATE.charts[minerId]){
+    try{ STATE.charts[minerId].destroy(); }catch(e){}
+    delete STATE.charts[minerId];
+  }
+  STATE.charts[minerId] = makeChart(minerId, series, labels, status);
+}
+
+/* ===== main refresh ===== */
+async function refreshStatus(){
+  const r = await fetch("/api/status", {cache:"no-store"});
+  const j = await r.json();
+
+  setText("now", j.now || "--:--:--");
+  setText("totalW", fmt(j.total_w, 1));
+  setText("eurDay", fmt(j.eur_day, 2));
+  setText("eurMonth", fmt(j.eur_month, 2));
+
+  // refresh external data (price + difficulty)
+  await refreshBtcPrice();
+  await refreshDifficulty();
+
+  const miners = j.miners || {};
+
+  function calcMaxW(id, w){
+    if(String(id).toLowerCase().includes("nerd")) return Math.max(110, (w||0)*1.25 + 10);
+    return Math.max(60, (w||0)*1.25 + 10);
+  }
+
+  // total TH for BTC KPI
+  let totalTH = 0;
+
+  for(const id in miners){
+    const m = miners[id];
+
+    setDot(id, m.status, m.asic_temp);
+    setText(id+"-status2", m.status ?? "--");
+
+    const th = Number(m.hashrate_th);
+    if(!Number.isNaN(th)) totalTH += th;
+
+    setText(id+"-ths", fmt(m.hashrate_th, 2));
+    setText(id+"-ths2", fmt(m.hashrate_th, 2));
+
+    setText(id+"-w", fmt(m.watts, 1));
+    setText(id+"-w2", fmt(m.watts, 1));
+    setText(id+"-eff", m.eff_j_th ? fmt(m.eff_j_th, 2) : "--");
+
+    // best diff badge
+    const be = document.getElementById(id+"-best");
+    if(be){
+      if(m.best_diff){
+        const meta = bestMeta(m.best_diff);
+        be.textContent = `${meta.emo} ${fmtShort(m.best_diff)}`.trim();
+        be.title = fmtInt(m.best_diff);
+        be.classList.add("bestBadge");
+        be.classList.remove("bestT","bestB","bestM","bestK");
+        if(meta.cls) be.classList.add(meta.cls);
+      }else{
+        be.textContent = "--";
+        be.title = "";
+      }
+    }
+
+    setText(id+"-asic", m.asic_temp !== null ? fmt(m.asic_temp, 1) : "--");
+    setText(id+"-vrm",  m.vrm_temp !== null ? fmt(m.vrm_temp, 1) : "--");
+
+    const newA = (m.shares_accepted ?? null);
+
+    // POOL + USER
+    try{
+      setById(id + "-poolHost", (m.pool ?? "--"));
+      setById(id + "-poolUser", (m.user ?? "--"));
+    }catch(e){}
+
+    // coin rain when shares increase
+    try{ coinRainUpdate(id, newA, m.status); }catch(e){}
+    // pool box
+    try{ updatePoolBox(id, m.pool, m.user); }catch(e){}
+
+
+    setText(id+"-shA", newA ?? "--");
+    setText(id+"-shR", m.shares_rejected ?? "--");
+    setText(id+"-err", m.error_pct !== null ? fmt(m.error_pct, 2) : "--");
+
+    setText(id+"-freq", m.frequency ?? "--");
+    setText(id+"-core", m.core_v ?? "--");
+    setText(id+"-rssi", m.wifi_rssi ?? "--");
+    // pool + user
+    setText(id+"-poolHost", m.pool ?? "--");
+    setText(id+"-poolUser", m.user ?? "--");
+
+    setText(id+"-fan",  m.fan_rpm ?? "--");
+    setText(id+"-up", fmtUptime(m.uptime_s));
+    setText(id+"-ts", m.ts_human ?? "--");
+
+    const w = Number(m.watts);
+    const wMax = calcMaxW(id, w);
+    setText(id+"-wMax", fmt(wMax, 0));
+    setBar(id+"-pwrBar", (wMax > 0 ? w / wMax : 0), (wMax > 0 ? w / wMax > 0.85 : false));
+
+    const t = Number(m.asic_temp);
+    const tMax = 85;
+    setText(id+"-tMax", tMax);
+    setBar(id+"-tmpBar", (tMax > 0 ? t / tMax : 0), (tMax > 0 ? t / tMax > 0.85 : false));
+  }
+
+  // Update BTC KPIs
+  updateBtcKpis(totalTH, Number(j.total_w || 0));
+
+  // charts sequentially
+  if(window.MINERS){
+    for(const minerId of window.MINERS){
+      const st = (miners[minerId] || {}).status || "offline";
+      try{ await refreshChart(minerId, st); }catch(e){}
+    }
+  }
+}
+
+/* ===== init ===== */
+document.addEventListener("DOMContentLoaded", () => {
+  if(window.innerWidth <= 600 && localStorage.getItem("compact") === null){
+    STATE.compact = true;
+  }
+  applyCompact();
+
+  // range buttons
+  setActiveRangeButtons();
+  document.querySelectorAll("#rangeSeg .segbtn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      STATE.hours = Number(btn.dataset.hours);
+      localStorage.setItem("rangeHours", String(STATE.hours));
+      setActiveRangeButtons();
+      refreshStatus();
+    });
+  });
+
+  // compact toggle
+  const ct = document.getElementById("compactToggle");
+  if(ct){
+    ct.addEventListener("click", () => {
+      STATE.compact = !STATE.compact;
+      applyCompact();
+    });
+  }
+
+  // BTC mode buttons
+  setActiveBtcModeButtons();
+  document.querySelectorAll("#btcModeSeg .segbtn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      setBtcMode(btn.dataset.mode);
+      refreshStatus();
+    });
+  });
+
+  if(document.getElementById("totalW")){
+    refreshStatus();
+    setInterval(refreshStatus, 10000);
+  }
+});
+
+
+/* ===== GLOBAL COIN RAIN ===== */
+window.__prevShares = window.__prevShares || {};
+
+function getCoinLayer(){
+  let layer = document.getElementById("coin-layer");
+  if(!layer){
+    layer = document.createElement("div");
+    layer.id = "coin-layer";
+    document.body.appendChild(layer);
+  }
+  return layer;
+}
+
+function spawnCoins(count){
+  const n = Math.max(0, Math.min(Number(count)||0, 25));
+  if(n <= 0) return;
+  const layer = getCoinLayer();
+
+  for(let i=0; i<n; i++){
+    const c = document.createElement("div");
+    c.className = "coin";
+    c.style.left = (Math.random()*98) + "%";
+    c.style.fontSize = (12 + Math.random()*16) + "px";
+    c.style.setProperty("--dur", (1.0 + Math.random()*1.4) + "s");
+    c.style.setProperty("--dx", (-60 + Math.random()*120) + "px");
+    c.style.animationDelay = (Math.random()*0.20) + "s";
+    layer.appendChild(c);
+    c.addEventListener("animationend", ()=>c.remove());
+  }
+}
+
+function coinRainUpdate(minerId, sharesAccepted, status){
+  if(window.__coinRainLock[minerId]) return;
+  window.__coinRainLock[minerId] = true;
+  setTimeout(()=>{ delete window.__coinRainLock[minerId]; }, 500);
+
+  if(status !== "online") return;
+  const cur = Number(sharesAccepted);
+  if(Number.isNaN(cur)) return;
+
+  const prev = window.__prevShares[minerId];
+  if(prev !== undefined){
+    const delta = cur - prev;
+    if(delta > 0) spawnCoins(delta);
+  }
+  window.__prevShares[minerId] = cur;
+}
+
+/* ===== pool box (inline) ===== */
+
+/* ===== pool box (inline) ===== */
+function ensurePoolBox(minerId){
+  const el = document.getElementById(minerId + "-shA");
+  if(!el) return null;
+  const card = el.closest(".minerCard");
+  if(!card) return null;
+
+  // wstawiamy na sam dół karty (flow), nie absolute
+  let box = card.querySelector(".poolBox");
+  if(!box){
+    box = document.createElement("div");
+    card.appendChild(box);
+  }
+  return box;
+}
+
+function updatePoolBox(minerId, pool, user){
+  ensurePoolBox(minerId);
+  const pv = document.getElementById(minerId + "-poolv");
+  const uv = document.getElementById(minerId + "-userv");
+  if(pv) pv.textContent = String(pool ?? "--");
+  if(uv) uv.textContent = String(user ?? "--");
+}
+
