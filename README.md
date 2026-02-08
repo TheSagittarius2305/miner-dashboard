@@ -36,20 +36,35 @@ Projekt powstał z myślą o:
 ## 📂 Struktura projektu
 
 miner-dashboard/
+
 ├── app/
+
 │ ├── static/
+
 │ │ ├── app.js
+
 │ │ └── styles.css
+
 │ └── templates/
+
 │ ├── base.html
+
 │ ├── dashboard.html
+
 │ └── dashboard_pro.html
+
 ├── worker.py
+
 ├── wsgi.py
+
 ├── config.example.yaml
+
 ├── requirements.txt
+
 ├── README.md
+
 └── .gitignore
+
 ---
 
 ## ⚙️ Instalacja (Raspberry Pi)
