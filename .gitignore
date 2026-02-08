@@ -2,28 +2,22 @@
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
-*.sqlite3
-*.db
 
 # Virtualenv
 .venv/
-venv/
 
-# Runtime / data
-data/
-nohup.out
-/tmp/
+# Runtime / logs
 *.log
+nohup.out
 
-# Config (real)
+# Local config (SECRETS)
 config.yaml
 
-# OS / editor
-.DS_Store
-.idea/
-.vscode/
+# Database / data
+data/
+*.sqlite3
 
-# Backup / patch artifacts
-_patch_backup_*/
+# OS
+.DS_Store
+Thumbs.db
 
